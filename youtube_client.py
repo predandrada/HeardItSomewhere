@@ -7,6 +7,7 @@ from googleapiclient.discovery import build
 import google_auth_oauthlib
 # import googleapiclient.errors
 import os
+import youtube_dl
 
 # scope[0] -> read & write privilege
 # scope[1] -> read-only privilege
@@ -16,12 +17,13 @@ scopes = [
 ]
 
 
+# contains all logic related to the youtube client
 class YoutubeEngine:
     def __init__(self):
-        self.yt_client = self.get_client()
+        self.yt_client = self.get_client(self)
         self.playlists = self.get_playlists()
-        self.song_collection = None
 
+    @staticmethod
     def get_client(self):
         # disables OAuthlib's HTTP verification for local runs
         os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = "1"
@@ -56,8 +58,8 @@ class YoutubeEngine:
                 return item["id"]
         return -1
 
-    # updates the song collection
-    def get_songs(self, playlist_name):
+    # returns a dictionary containing song data (song_name & artist)
+    def get_songs(self, playlist_name, song_collection):
         playlist_id = self.look_up_playlist(playlist_name)
         if playlist_id == -1:
             return None
@@ -71,21 +73,50 @@ class YoutubeEngine:
         # json containing the songs in the playlist
         response = request.execute()
 
-        return response
+        # we need to parse the json in order to extract the data we need (song_name & artist)
+        for item in response["items"]:
+            id = item["snippet"]["resourceId"]["videoId"]
+            youtube_url = "https://www.youtube.com/watch?v={}".format(id)
+            video = youtube_dl.YoutubeDL({}).extract_info(youtube_url, download=False)
+            # some songs might not have the song name & artist set up
+            # so they will be skipped because their query would generate incorrect responses
+            if video["artist"] is not None and video["track"] is not None:
+                song_collection[id] = {
+                    "artist": video["artist"],
+                    "track": video["track"]
+                }
 
+
+#  contains the general logic of the app
+class AppEngine:
+    def __init__(self):
+        self.youtube_engine = YoutubeEngine()
+        # self.spotify_engine = SpotifyEngine()
+        self.song_collection = {}
+
+    # the song collection gets updated
     def export(self, playlist_name):
-        self.song_collection = self.get_songs(playlist_name)
-        # print(self.song_collection)
+        self.youtube_engine.get_songs(playlist_name, self.song_collection)
+        print(self.song_collection)
+
+    def input_playlist(self):
+        playlist_to_look_up = input("Insert the name of a Youtube playlist you would like to export to Spotify: ")
+        while self.youtube_engine.look_up_playlist(playlist_to_look_up) == -1:
+            playlist_to_look_up = input("Playlist not found :(. Try another one: ")
+        return playlist_to_look_up
+
+    def run(self):
+        self.export(self.input_playlist())
+
+
+class SpotifyEngine:
+    def __init__(self):
+        print("this is the spotify engine")
+
+    def get_client(self):
+        pass
 
 
 if __name__ == "__main__":
-    youtube_engine = YoutubeEngine()
-    playlist_to_export = input("Insert the name of a Youtube playlist you would like to export to Spotify: ")
-
-    # exits the loop when the playlist is valid
-    while youtube_engine.look_up_playlist(playlist_to_export) == -1:
-        playlist_to_export = input("Playlist not found :(. Try another one: ")
-
-    youtube_engine.export(playlist_to_export)
-
+    AppEngine().run()
     print("Thank you for using HeardItSomewhere! See you next time!")
